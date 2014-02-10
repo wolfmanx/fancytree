@@ -861,14 +861,14 @@ FancytreeNode.prototype = /** @lends FancytreeNode# */{
 	/** Expand all parents and optionally scroll into visible area as neccessary (async).
 	 *
 	 */
-	makeVisible: function() {
+	makeVisible: function(opts) {
 		// TODO: implement scolling (http://www.w3.org/TR/wai-aria-practices/#visualfocus)
 		// TODO: return $.promise
 		var i, l,
 			parents = this.getParentList(false, false);
 
 		for(i=0, l=parents.length; i<l; i++){
-			parents[i].setExpanded(true);
+			parents[i].setExpanded(true, opts);
 		}
 	},
 	/** Move this node to targetNode.
