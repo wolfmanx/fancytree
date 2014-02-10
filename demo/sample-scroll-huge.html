@@ -68,30 +68,46 @@ $.fn.scrollTo = function( target, options, callback ){
 		}
 	}
 
-	// showNode(node[, options], complete)
-	function showNode(node, options, complete) {
-		var opts = node.tree.options;
-		var _options = {
-			makeVisible: true,
-			centered: false,
-			complete: null
-		};
-		if (options && typeof(options) == 'function') {
-			complete = options;
+	// makeOptions([options,] func, func_name, _options)
+	function makeOptions(options, func, func_name, _options) {
+		if (typeof(options) == 'undefined') {
+			options = {};
+		} else if (typeof(options) == 'function') {
+			func = options;
 			options = false;
 		}
-		options = options ? $.extend({}, _options, options) : _options;
-		complete = complete ? complete : options['complete'];
+		if (typeof(func_name) == 'undefined') {
+			func_name = 'func';
+		}
+		if (typeof(_options) == 'undefined') {
+			_options = {};
+		}
+		$.extend(_options, options);
+		if (func) {
+			_options[func_name] = func;
+		}
+		return _options;
+	}
+
+	// showNode(node[, options], complete)
+	function showNode(node, options, complete) {
+		options = makeOptions(options, complete, 'complete', {
+			makeVisible: true,
+			centered: false,
+			complete: null,
+			fx: {duration: 200, queue: false}
+		});
+		complete = options.complete;
+		var opts = node.tree.options;
+		var complete_done = false;
 		var activeSpan = node.span;
 		if (options.makeVisible) {
 			node.makeVisible({noAnimation: !!activeSpan});
 		}
 		if (activeSpan) {
-			var container = opts.scrollContainer ? opts.scrollContainer : node.tree.$container;
-			// console.log('container:', container);
-			//console.log('container.length:', container.length);
-			if (container.length) {
-				var cheight = container.height();
+			var $container = opts.scrollContainer ? opts.scrollContainer : node.tree.$container;
+			if ($container.length) {
+				var cheight = $container.height();
 				var parent = node.parent.span;
 				var ptop = parent && $(parent).offset().top;
 				var atop = $(activeSpan).offset().top;
@@ -104,54 +120,63 @@ $.fn.scrollTo = function( target, options, callback ){
 					peligible = true;
 				} else {
 					scrollSpan = activeSpan;
-					context = -(cheight/2);
+					if (options.centered || node.parent.parent) {
+						context = -(cheight/2);
+					};
 				}
-				var scrollTop = $(scrollSpan).offset().top - container.offset().top + container.scrollTop() + context
-				container.animate({
-					scrollTop: scrollTop,
-				}, {duration: 200, queue: false}, complete);
+				var scrollTop = $(scrollSpan).offset().top - $container.offset().top + $container.scrollTop() + context;
+				var fx = options.fx;
+				if (fx && complete) {
+					fx = $.extend({complete: complete}, fx);
+				}
+				$container.animate({scrollTop: scrollTop}, fx, complete);
+				complete_done = true;
 			}
+		}
+		if (complete && !complete_done) {
+			complete();
 		}
 	}
 
-	function expandCollapseNode(node, expand) {
+	function expandCollapseNode(node, expand, options, complete) {
 		var type = (expand ? 'expansion' : 'collapse');
 		var promises = [];
+		options = makeOptions(options, complete, 'complete');
 
-		console.log(type + ' with' + (setExpandedOptions ? 'out' : '') + ' animations');
+		//if (node.parent && expand) {
+		//	safeSetExpanded(node, false, promises, setExpandedOptions);
+		//}
 		node.visit(function(node){
 			safeSetExpanded(node, expand, promises, setExpandedOptions);
 		});
+		if (node.parent && expand) {
+			safeSetExpanded(node, expand, promises, setExpandedOptions);
+		}
 
-		// |:here:|
 		function finalize () {
 			var $container = node.tree.$container;
 
 			// Determine active node
 			var activeNode = node.tree.getActiveNode();
 			if (!activeNode) {
-				console.log('> no active node, try focus node');
 				activeNode = node.tree.getFocusNode();
-			} else {
-				console.log('> use active node');
 			}
 			if (!activeNode) {
 				if (!node.parent) {
-					console.log('> no focus node, use first child for root');
 					activeNode = node.getFirstChild();
 				} else {
-					console.log('> no focus node, use node');
 					activeNode = node;
 				}
 			}
-
 			if (activeNode) {
-				showNode(activeNode
-						 //, {centered: true}
-						);
+				showNode(activeNode, options);
+			} else {
+				complete = options.complete;
+				if (complete) {
+					complete();
+				}
 			}
 		}
-
 		return $.when.apply(null, promises).then(finalize, finalize);
 	}
 
@@ -179,16 +204,12 @@ $.fn.scrollTo = function( target, options, callback ){
 				data.tree.getFirstChild().setFocus();
 				data.tree.activateKey('10.3.3');
 				// cycle once to build tree, which would bias statistics
-
-				var promises = [];
 				var svSetExpandedOptions = setExpandedOptions;
 				setExpandedOptions	= {noAnimation: true};
-				promises.push(expandCollapseNode(data.tree.rootNode, true, true));
-				promises.push(expandCollapseNode(data.tree.rootNode, false, true));
-				$.when(promises).then(function(){
-					setExpandedOptions = svSetExpandedOptions;
-				}, function(){
-					setExpandedOptions = svSetExpandedOptions;
+				expandCollapseNode(data.tree.rootNode, true, {fx: false}, function() {
+					expandCollapseNode(data.tree.rootNode, false, function() {
+						setExpandedOptions = svSetExpandedOptions;
+					});
 				});
 			},
 		});
@@ -218,10 +239,61 @@ $(function(){
 	});
 	addSampleButton({
 		label: "Cycle",
+		newline: true,
+		code: function(){
+			expandCollapseNode($('#tree').fancytree('getRootNode'), true, {fx: false}, function () {
+			    expandCollapseNode($('#tree').fancytree('getRootNode'), false);
+			});
+		}
+	});
+	addSampleButton({
+		label: "Expand subtree",
 		newline: false,
 		code: function(){
-			expandCollapseNode($('#tree').fancytree('getRootNode'), true);
-			expandCollapseNode($('#tree').fancytree('getRootNode'), false);
+			var tree = $('#tree').fancytree('getTree');
+			if (tree) {
+				var activeNode = tree.getActiveNode();
+				if (!activeNode) {
+					activeNode = tree.getFocusNode();
+				}
+				if (activeNode) {
+					expandCollapseNode(activeNode, true);
+				}
+			}
+		}
+	});
+	addSampleButton({
+	label: "Collapse subtree",
+		newline: false,
+		code: function(){
+			var tree = $('#tree').fancytree('getTree');
+			if (tree) {
+				var activeNode = tree.getActiveNode();
+				if (!activeNode) {
+					activeNode = tree.getFocusNode();
+				}
+				if (activeNode) {
+					expandCollapseNode(activeNode, false);
+				}
+			}
+		}
+	});
+	addSampleButton({
+		label: "Cycle",
+		newline: true,
+		code: function(){
+			var tree = $('#tree').fancytree('getTree');
+			if (tree) {
+				var activeNode = tree.getActiveNode();
+				if (!activeNode) {
+					activeNode = tree.getFocusNode();
+				}
+				if (activeNode) {
+					expandCollapseNode(activeNode, true, {fx: false}, function () {
+						expandCollapseNode(activeNode, false);
+					});
+				}
+			}
 		}
 	});
 });
