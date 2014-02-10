@@ -106,6 +106,8 @@ $.fn.scrollTo = function( target, options, callback ){
   */
 
 	var disableAutoScroll = false;
+	var useSetExpandedOpts = false;
+	var currentTimeout;
 
 	var promised = null;
 
@@ -140,11 +142,11 @@ $.fn.scrollTo = function( target, options, callback ){
 		return opts.stats;
 	}
 
-	function safeSetExpanded(node, expand, promises) {
+	function safeSetExpanded(node, expand, promises, opts) {
 		var isExpanded = node.isExpanded();
 		if ((expand && !isExpanded) || (!expand && isExpanded)) {
 			// avoid warnings, which distort benchmark
-			var promise = node.setExpanded(expand);
+			var promise = node.setExpanded(expand, opts);
 			if (promise) {
 			  // |:debug:|
 			  if (promise.state() != 'rejected') {
@@ -187,7 +189,7 @@ $.fn.scrollTo = function( target, options, callback ){
 		options = options ? options : $.extend(_options, options);
 		complete = complete ? complete : _options['complete'];
 		if (_options.makeVisible) {
-			node.makeVisible();
+			node.makeVisible(useSetExpandedOpts);
 		}
 		var activeSpan = node.span;
 		if (activeSpan) {
@@ -224,8 +226,8 @@ $.fn.scrollTo = function( target, options, callback ){
 					noscroll: noscroll
 				});
 				container.animate({
-					scrollTop: scrollTop
-				}, 'fast', complete);
+					scrollTop: scrollTop,
+				}, {duration: 200, queue: false}, complete);
 			}
 		}
 	}
@@ -242,8 +244,8 @@ $.fn.scrollTo = function( target, options, callback ){
 		var promises = [];
 
 		var stats_table_opts = {
-			  classVariant: (disable_auto_scroll ? 'next-perm' : 'next-temp'),
-			  colOfsVariant: (disable_auto_scroll ? 4 : 0),
+			  classVariant: ((disable_auto_scroll || useSetExpandedOpts) ? 'next-perm' : 'next-temp'),
+			  colOfsVariant: ((disable_auto_scroll || useSetExpandedOpts) ? 4 : 0),
 			  classType: (expand ? 'expand' : 'collapse'),
 			  colOfsType: (expand ? 0 : 2),
 			  };
@@ -259,7 +261,10 @@ $.fn.scrollTo = function( target, options, callback ){
 				// since nodeSetExpanded also uses animation, scrollTimeLast
 				// will not be updated soon enough, if makeVisible actually
 				// expands nodes. Therefore, opts.fx should generally be disabled!
-		opts.fx = false;
+
+			if (!useSetExpandedOpts) {
+			opts.fx = false;
+			}
 
 		if (disable_auto_scroll) {
 			console.log('elaborate ' + type + ' with autoScroll temporarily disabled (autoScroll:' + optsAutoScroll + ')');
@@ -273,22 +278,22 @@ $.fn.scrollTo = function( target, options, callback ){
 			// always collapse top node(s) without autoScroll
 			// visit children without autoScroll
 			$.each(top_nodes, function(i, n){
-				safeSetExpanded(n, false, promises);
+				safeSetExpanded(n, false, promises, useSetExpandedOpts);
 				n.visit(function(node){
-					safeSetExpanded(node, expand, promises);
+					safeSetExpanded(node, expand, promises, useSetExpandedOpts);
 					if (node.ul
 						// && $(node.ul).queue().length
 					   ) {
 						last_node = node;
 					}
 				});
-				safeSetExpanded(n, expand, promises);
+				safeSetExpanded(n, expand, promises, useSetExpandedOpts);
 			});
 			opts.autoScroll = optsAutoScroll;
 		} else {
 			console.log('simple ' + type + ' with autoScroll always enabled (autoScroll:' + optsAutoScroll + ')');
 			node.visit(function(node){
-				safeSetExpanded(node, expand, promises);
+				safeSetExpanded(node, expand, promises, useSetExpandedOpts);
 				if (node.ul
 					// && $(node.ul).queue().length
 				   ) {
@@ -329,14 +334,18 @@ $.fn.scrollTo = function( target, options, callback ){
 			var stats = get_stats();
 			if (anode) {
 				// do this early to catch scrollIntoView calls
-				anode.makeVisible();
+				anode.makeVisible(useSetExpandedOpts);
 				// console.log('anode_params after promises:', get_node_params(anode));
 
 				var action = function() {
-								stats.endAction = $.now() - stats.start;
+					if (currentTimeout) {
+						clearTimeout(currentTimeout);
+						currentTimeout = false;
+					}
+					stats.endAction = $.now() - stats.start;
 					// console.log('anode_params before final scroll:', get_node_params(anode));
 					showNode(anode, { makeVisible: true, centered: true }, function() {
-									stats.endShow = $.now() - stats.start;
+									  stats.endShow = $.now() - stats.start;
 						// console.log('anode_params after scroll:', get_node_params(anode));
 					});
 				}
@@ -353,7 +362,10 @@ $.fn.scrollTo = function( target, options, callback ){
 				stats.showTimeout = timeout;
 				// timeout = 200; // |:debug:|
 				if (timeout > 0) {
-				  setTimeout(action, timeout);
+							  if (currentTimeout) {
+								clearTimeout(currentTimeout);
+							  }
+				  currentTimeout = setTimeout(action, timeout);
 				} else {
 				  action();
 				}
@@ -379,7 +391,7 @@ $.fn.scrollTo = function( target, options, callback ){
 			  $(stats_cols[stats_col_ofs + 1]).text(stats.endInternal);
 
 			  var stats_row = stats_cols.first().parent();
-			  var stats_row_next = $('#stats tr.' + stats_row_class  +  ' + tr');
+			  var stats_row_next = $('#stats tr.' + stats_row_class	 +	' + tr');
 			  if (!stats_row_next.length) {
 				  stats_row_next = $('<tr><td class="left">&nbsp;</td><td class=""></td><td class=""></td><td class="right"></td><td class="left"></td><td class=""></td><td class=""></td><td class="right"></td></tr>');
 				  $('#stats tbody').append(stats_row_next);
@@ -442,8 +454,8 @@ $.fn.scrollTo = function( target, options, callback ){
 				data.result = {url: "../test/unit/ajax-sub2.json"}
 			},
 			// postProcess: function(event, data) {
-			//  console.log('postProcess:', event, data);
-			//  data.tree.getFirstChild().setFocus();
+			//	console.log('postProcess:', event, data);
+			//	data.tree.getFirstChild().setFocus();
 			// },
 			init: function(event, data) {
 				data.tree.getFirstChild().setFocus();
@@ -456,7 +468,7 @@ $.fn.scrollTo = function( target, options, callback ){
 				stats_disabled = sv_stats_disabled;
 			},
 			// focus: function(event, data){
-			//    data.node.scrollIntoView(true);
+			//	  data.node.scrollIntoView(true);
 			// },
 		});
 
@@ -474,6 +486,15 @@ $(function(){
 		label: "Disable autoScroll temporarily",
 		// newline: false,
 		code: function() {
+			if( !useSetExpandedOpts ){
+				$("#btnDisable").text('Enable autoScroll permanently');
+				useSetExpandedOpts = {noAnimation: true};
+			}else{
+				$("#btnDisable").text('Disable autoScroll temporarily');
+				useSetExpandedOpts = false;
+			}
+			return;
+
 			disableAutoScroll = !disableAutoScroll;
 			if( disableAutoScroll ){
 				$("#btnDisable").text('Enable autoScroll permanently');
