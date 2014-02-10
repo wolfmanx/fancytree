@@ -1219,9 +1219,6 @@ FancytreeNode.prototype = /** @lends FancytreeNode# */{
 					this.tree.options.stats.scrollTimeLast = $.now();
 				}
 				$container.animate({scrollTop: newScrollTop}, effects);
-				//$container.animate({scrollTop: newScrollTop}, effects, function () {
-				//        dfd.resolveWith(that);
-				//    });
 			}else{
 				$container[0].scrollTop = newScrollTop;
 				dfd.resolveWith(this);
@@ -2871,8 +2868,6 @@ $.extend(Fancytree.prototype,
 			ctx.tree._triggerNodeEvent(flag ? "expand" : "collapse", ctx);
 			if( opts.autoScroll && !noAnimation ) {
 				opts.stats.deferredCalls++;
-			}
-			if(optsAutoScroll){
 				// Scroll down to last child, but keep current node visible
 				node.getLastChild().scrollIntoView(true, node);
 			}
